@@ -1,5 +1,4 @@
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
 import vue from '@vitejs/plugin-vue'
 import vueRouter from 'vue-router/vite'
 import vueLayouts from 'vite-plugin-vue-layouts'
@@ -22,9 +21,15 @@ export default defineConfig({
           neutral: 'zinc'
         }
       }
-    }),
-    nitro({
-      serverDir: './server'
     })
-  ]
+  ],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8049',
+        changeOrigin: true,
+        rewrite: (path) => path
+      }
+    }
+  }
 })

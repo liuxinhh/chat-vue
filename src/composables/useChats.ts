@@ -1,30 +1,40 @@
 import { isToday, isYesterday, subMonths } from 'date-fns'
 import { computed, ref } from 'vue'
-import { createSharedComposable } from '@vueuse/core'
-import { $fetch } from 'ofetch'
-import type { Chat as ChatData } from '~/server/utils/drizzle'
+import { apiClient } from '../api/client'
 
 interface Chat {
   id: string
   label: string
   icon: string
   createdAt: string
+  to?: string
 }
 
-export const useChats = createSharedComposable(() => {
+export const useChats = () => {
   const chats = ref<Chat[]>([])
+  const loading = ref(false)
+  const error = ref<string | null>(null)
 
   const fetchChats = async () => {
-    chats.value = await $fetch('/api/chats').then((data: ChatData[]) => data.map(chat => ({
-      id: chat.id,
-      label: chat.title || 'Untitled',
-      to: `/chat/${chat.id}`,
-      icon: 'i-lucide-message-circle',
-      createdAt: String(chat.createdAt)
-    }) as Chat)).catch(error => {
-      console.error(error)
-      return []
-    })
+    loading.value = true
+    error.value = null
+
+    try {
+      const data = await apiClient.get<any[]>('/api/chats')
+      chats.value = data.map((chat: any) => ({
+        id: chat.id,
+        label: chat.title || '未命名对话',
+        to: `/chat/${chat.id}`,
+        icon: 'i-lucide-message-circle',
+        createdAt: chat.createdAt || new Date().toISOString()
+      }))
+    } catch (err) {
+      console.error('获取聊天列表失败:', err)
+      error.value = '获取聊天列表失败'
+      chats.value = []
+    } finally {
+      loading.value = false
+    }
   }
 
   const groups = computed(() => {
@@ -125,9 +135,40 @@ export const useChats = createSharedComposable(() => {
     return formattedGroups
   })
 
+  const createChat = async (input: string) => {
+    try {
+      const response = await apiClient.post('/api/chats', { input })
+      await fetchChats()
+      return response.id
+    } catch (err) {
+      console.error('创建聊天失败:', err)
+      throw err
+    }
+  }
+
+  const deleteChat = async (id: string) => {
+    try {
+      await apiClient.delete(`/api/chats/${id}`)
+      chats.value = chats.value.filter(chat => chat.id !== id)
+    } catch (err) {
+      console.error('删除聊天失败:', err)
+      throw err
+    }
+  }
+
+  const getChat = async (id: string) => {
+    const response = await apiClient.get(`/api/chats/${id}`)
+    return response
+  }
+
   return {
     groups,
     chats,
-    fetchChats
+    loading,
+    error,
+    fetchChats,
+    createChat,
+    deleteChat,
+    getChat
   }
-})
+}

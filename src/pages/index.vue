@@ -1,31 +1,21 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { $fetch } from 'ofetch'
 import { useChats } from '../composables/useChats'
-import { useCsrf } from '../composables/useCsrf'
 import { useRouter } from 'vue-router'
 
-const { fetchChats } = useChats()
-const { csrf, headerName } = useCsrf()
+const { fetchChats, createChat } = useChats()
 const input = ref('')
 const loading = ref(false)
 const router = useRouter()
 
-async function createChat(prompt: string) {
-  input.value = prompt
-  loading.value = true
-  const chat = await $fetch('/api/chats', {
-    method: 'POST',
-    headers: { [headerName]: csrf() },
-    body: { input: prompt }
-  })
 
+
+async function onSubmit() {
+  let prompt = input.value
+  loading.value = true
+  const chat = await createChat(prompt);
   await fetchChats()
   router.push(`/chat/${chat?.id}`)
-}
-
-function onSubmit() {
-  createChat(input.value)
 }
 
 const quickChats = [

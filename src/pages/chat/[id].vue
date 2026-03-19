@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { $fetch } from 'ofetch'
 import { Chat } from '@ai-sdk/vue'
 import { DefaultChatTransport } from 'ai'
 import type { UIMessage } from 'ai'
@@ -21,10 +20,10 @@ const route = useRoute<'/chat/[id]'>()
 const toast = useToast()
 const clipboard = useClipboard()
 const { model } = useModels()
-const { fetchChats } = useChats()
+const { fetchChats, getChat } = useChats()
 const { csrf, headerName } = useCsrf()
 
-const chatData = await $fetch(`/api/chats/${route.params.id}`)
+const chatData = await getChat(route.params.id)
 
 // if (!chatData) {
 //   throw createError({ statusCode: 404, statusMessage: 'Chat not found', fatal: true })

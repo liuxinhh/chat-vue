@@ -12,17 +12,18 @@ defineProps<{
 const router = useRouter()
 const colorMode = useColorMode()
 const appConfig = useAppConfig()
-const { user, clearSession } = useUserSession()
+const { user, logout } = useUserSession()
 
 const colors = ['red', 'orange', 'amber', 'yellow', 'lime', 'green', 'emerald', 'teal', 'cyan', 'sky', 'blue', 'indigo', 'violet', 'purple', 'fuchsia', 'pink', 'rose']
 const neutrals = ['slate', 'gray', 'zinc', 'neutral', 'stone']
 
-const items = computed<DropdownMenuItem[][]>(() => ([[{
+const items = computed<DropdownMenuItem[][]>(() => ([
+[{
   type: 'label',
-  label: user.value?.name,
+  label: user.value?.userName || user.value?.email || 'User',
   avatar: {
-    src: user.value?.avatar,
-    alt: user.value?.name
+    src: undefined,
+    alt: user.value?.userName || 'User'
   }
 }], [{
   label: 'Theme',
@@ -124,8 +125,8 @@ const items = computed<DropdownMenuItem[][]>(() => ([[{
 }], [{
   label: 'Log out',
   icon: 'i-lucide-log-out',
-  onSelect() {
-    clearSession()
+  async onSelect() {
+    await logout()
     router.push('/')
   }
 }]]))
@@ -139,12 +140,12 @@ const items = computed<DropdownMenuItem[][]>(() => ([[{
   >
     <UButton
       v-bind="{
-        label: collapsed ? undefined : (user?.name || user?.username),
+        label: collapsed ? undefined : (user?.userName || user?.email),
         trailingIcon: collapsed ? undefined : 'i-lucide-chevrons-up-down'
       }"
       :avatar="{
-        src: user?.avatar || undefined,
-        alt: user?.name || user?.username
+        src: undefined,
+        alt: user?.userName || 'User'
       }"
       color="neutral"
       variant="ghost"

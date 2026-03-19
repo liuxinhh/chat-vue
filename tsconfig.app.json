@@ -1,12 +1,14 @@
 {
-  "extends": ["nitro/tsconfig"],
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
     "module": "ESNext",
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2020",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "skipLibCheck": true,
-
     /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
@@ -14,24 +16,32 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "preserve",
-
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-
     /* Paths */
     "rootDir": ".",
     "paths": {
-      "~/*": ["./*"],
-      "#build/ui/*": ["./node_modules/.nuxt-ui/ui/*"]
+      "~/*": [
+        "./*"
+      ],
+      "#build/ui/*": [
+        "./node_modules/.nuxt-ui/ui/*"
+      ]
     },
     "types": [
       "vite-plugin-vue-layouts/client"
     ]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue", "auto-imports.d.ts", "components.d.ts"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "src/**/*.vue",
+    "auto-imports.d.ts",
+    "components.d.ts"
+  ],
   "vueCompilerOptions": {
     "plugins": [
       "vue-router/volar/sfc-typed-router",

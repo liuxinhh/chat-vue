@@ -1,23 +1,25 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import type { RouteLocationNormalizedLoaded } from 'vue-router'
 import { useRouter, useRoute } from 'vue-router'
-import { $fetch } from 'ofetch'
 import ModalConfirm from '../components/ModalConfirm.vue'
+import LoginModal from '../components/LoginModal.vue'
 import { useChats } from '../composables/useChats'
 import { useUserSession } from '../composables/useUserSession'
-import { useCsrf } from '../composables/useCsrf'
 
 const router = useRouter()
 const route = useRoute<'/chat/[id]' | '/'>()
 const toast = useToast()
 const overlay = useOverlay()
-const { loggedIn, openInPopup, fetchSession } = useUserSession()
-const { csrf, headerName } = useCsrf()
-const { groups, fetchChats } = useChats()
+const { loggedIn, fetchSession } = useUserSession()
+const { chats, fetchChats, deleteChat } = useChats()
 
-await fetchSession()
-await fetchChats()
+const openModal = ref(false)
+
+onMounted(async () => {
+  await fetchSession()
+  await fetchChats()
+})
 
 const open = ref(false)
 
@@ -28,43 +30,37 @@ const deleteModal = overlay.create(ModalConfirm, {
   }
 })
 
+function openLoginModal() {
+  openModal.value = true
+}
 
-watch(loggedIn, () => {
-  fetchChats()
-  open.value = false
+watch(loggedIn, async () => {
+  await fetchSession()
+  await fetchChats()
 })
 
-const items = computed(() => groups.value?.flatMap((group) => {
-  return [{
-    label: group.label,
-    type: 'label' as const
-  }, ...group.items.map(item => ({
-    ...item,
-    slot: 'chat' as const,
-    icon: undefined,
-    class: item.label === 'Untitled' ? 'text-muted' : ''
-  }))]
-}))
+const items = computed(() => chats.value.map((chat: any) => ({
+  label: chat.label,
+  to: `/chat/${chat.id}`,
+  slot: 'chat' as const,
+  id: chat.id,
+  class: chat.label === 'Untitled' ? 'text-muted' : ''
+})))
 
-async function deleteChat(id: string) {
+async function handleDeleteChat(id: string) {
   const instance = deleteModal.open()
   const result = await instance.result
   if (!result) {
     return
   }
 
-  await $fetch(`/api/chats/${id}`, {
-    method: 'DELETE',
-    headers: { [headerName]: csrf() }
-  })
+  await deleteChat(id)
 
   toast.add({
     title: 'Chat deleted',
     description: 'Your chat has been deleted',
     icon: 'i-lucide-trash'
   })
-
-  fetchChats()
 
   if ((route as RouteLocationNormalizedLoaded<'/chat/[id]'>).params?.id === id) {
     router.push('/')
@@ -142,7 +138,7 @@ defineShortcuts({
                 size="xs"
                 class="text-muted hover:text-primary hover:bg-accented/50 focus-visible:bg-accented/50 p-0.5"
                 tabindex="-1"
-                @click.stop.prevent="deleteChat((item as any).id)"
+                @click.stop.prevent="handleDeleteChat((item as any).id)"
               />
             </div>
           </template>
@@ -150,19 +146,28 @@ defineShortcuts({
       </template>
 
       <template #footer="{ collapsed }">
-        <UserMenu
-          v-if="loggedIn"
-          :collapsed="collapsed"
-        />
-        <UButton
-          v-else
-          :label="collapsed ? '' : 'Login with GitHub'"
-          icon="i-simple-icons:github"
-          color="neutral"
-          variant="ghost"
-          class="w-full"
-          @click="openInPopup('/auth/github')"
-        />
+        <UModal
+          :open="openModal"
+          size="md"
+          title="登录"
+        >
+          <UserMenu
+            v-if="loggedIn"
+            :collapsed="collapsed"
+          />
+          <UButton
+            v-else
+            :label="collapsed ? '' : 'Login'"
+            icon="i-lucide-log-in"
+            color="neutral"
+            variant="ghost"
+            class="w-full"
+            @click="openLoginModal()"
+          />
+          <template #body>
+            <LoginModal @success="openModal = false" />
+          </template>
+        </UModal>
       </template>
     </UDashboardSidebar>
 
@@ -175,7 +180,7 @@ defineShortcuts({
           to: '/',
           icon: 'i-lucide-square-pen'
         }]
-      }, ...groups]"
+      }]"
     />
 
     <div class="flex-1 flex m-4 lg:ml-0 rounded-lg ring ring-default bg-default/75 shadow min-w-0">

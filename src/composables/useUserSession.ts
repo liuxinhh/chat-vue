@@ -1,59 +1,70 @@
-import { createSharedComposable } from '@vueuse/core'
 import { ref, computed } from 'vue'
-import type { UserSession } from '../../server/utils/session'
-import { $fetch } from 'ofetch'
-import { useCsrf } from './useCsrf'
+import { apiClient } from '../api/client'
 
-export const useUserSession = createSharedComposable(() => {
-  const session = ref<UserSession | null>(null)
-  const { csrf, headerName } = useCsrf()
+export interface UserInfo {
+  userId: string
+  email: string
+  userName: string
+}
 
-  const clearSession = async () => {
-    await $fetch('/api/session', {
-      method: 'DELETE',
-      headers: { [headerName]: csrf() }
-    })
-    session.value = null
+export interface UserSession {
+  user: UserInfo | null
+  accessToken: string | null
+  isAuthenticated: boolean
+}
+
+const state = ref<UserSession>({
+  user: null,
+  accessToken: localStorage.getItem('accessToken'),
+  isAuthenticated: !!localStorage.getItem('accessToken'),
+})
+
+export const useUserSession = () => {
+  /**
+   * 检查用户是否已登录
+   */
+  const loggedIn = computed(() => state.value.isAuthenticated && !!state.value.accessToken)
+
+  /**
+   * 登录
+   */
+  const login = async (username: string, password: string) => {
+    try {
+      const response = await apiClient.login(username, password)
+      // 保存 token
+      const token = response.access_token || response.token
+      localStorage.setItem('accessToken', token)
+
+      // 保存用户信息
+      state.value.accessToken = token
+      state.value.isAuthenticated = true
+      return true
+    } catch (error) {
+      console.error('登录失败:', error)
+      return false
+    }
+  }
+
+  /**
+   * 登出
+   */
+  const logout = async () => {
+    localStorage.removeItem('accessToken')
+    localStorage.removeItem('refreshToken')
+    state.value.accessToken = null
+    state.value.user = null
+    state.value.isAuthenticated = false
   }
 
   const fetchSession = async () => {
-    session.value = await $fetch<UserSession>('/api/session').catch(() => null)
-  }
-
-  const popupListener = (e: StorageEvent) => {
-    if (e.key === 'temp-auth-popup') {
-      fetchSession()
-      window.removeEventListener('storage', popupListener)
-    }
-  }
-  const openInPopup = (route: string, size: { width?: number, height?: number } = {}) => {
-    // Set a local storage item to tell the popup that we pending auth
-    localStorage.setItem('temp-auth-popup', 'true')
-
-    const width = size.width ?? 960
-    const height = size.height ?? 600
-    const top = (window.top?.outerHeight ?? 0) / 2
-      + (window.top?.screenY ?? 0)
-      - height / 2
-    const left = (window.top?.outerWidth ?? 0) / 2
-      + (window.top?.screenX ?? 0)
-      - width / 2
-
-    window.open(
-      route,
-      'nuxt-auth-utils-popup',
-      `width=${width}, height=${height}, top=${top}, left=${left}, toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no`,
-    )
-
-    window.addEventListener('storage', popupListener)
+    state.value.user = await apiClient.get('/api/auth/session').then(response => response.user).catch(() => null)
   }
 
   return {
-    loggedIn: computed(() => Boolean(session.value?.user)),
-    user: computed(() => session.value?.user || null),
-    session,
-    openInPopup,
+    user : computed(() => state.value?.user || null),
+    loggedIn,
+    login,
+    logout,
     fetchSession,
-    clearSession,
   }
-})
+}
