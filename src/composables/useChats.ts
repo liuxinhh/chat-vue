@@ -139,7 +139,7 @@ export const useChats = () => {
     try {
       const response = await apiClient.post('/api/chats', { input })
       await fetchChats()
-      return response.id
+      return response
     } catch (err) {
       console.error('创建聊天失败:', err)
       throw err

@@ -7,11 +7,11 @@ import { useClipboard } from '@vueuse/core'
 import { getTextFromMessage } from '@nuxt/ui/utils/ai'
 import { useModels } from '../../composables/useModels'
 import { useChats } from '../../composables/useChats'
-import { useCsrf } from '../../composables/useCsrf'
+import { useToken } from '../../composables/useToken'
 import { useRoute } from 'vue-router'
 import MarkdownRender from 'vue-renderer-markdown'
-import type { WeatherUIToolInvocation } from '../../../server/utils/tools/weather'
-import type { ChartUIToolInvocation } from '../../../server/utils/tools/chart'
+import type { WeatherUIToolInvocation } from '../../utils/tools/weather'
+import type { ChartUIToolInvocation } from '../../utils/tools/chart'
 import ToolWeather from '../../components/tool/ToolWeather.vue'
 import ToolChart from '../../components/tool/ToolChart.vue'
 import Reasoning from '../../components/Reasoning.vue'
@@ -21,7 +21,7 @@ const toast = useToast()
 const clipboard = useClipboard()
 const { model } = useModels()
 const { fetchChats, getChat } = useChats()
-const { csrf, headerName } = useCsrf()
+const { getToken, headerName } = useToken()
 
 const chatData = await getChat(route.params.id)
 
@@ -36,7 +36,7 @@ const chat = new Chat({
   messages: chatData.messages,
   transport: new DefaultChatTransport({
     api: `/api/chats/${chatData.id}`,
-    headers: { [headerName]: csrf() },
+    headers: { [headerName]: `Bearer ${getToken()}` },
     body: {
       model: model.value
     }
@@ -47,6 +47,7 @@ const chat = new Chat({
     }
   },
   onError(error) {
+    console.log('Chat error:', error)
     const { message } = typeof error.message === 'string' && error.message[0] === '{' ? JSON.parse(error.message) : error
     toast.add({
       description: message,
@@ -98,14 +99,14 @@ onMounted(() => {
     </template>
 
     <template #body>
-      <UContainer class="flex-1 flex flex-col gap-4 sm:gap-6">
+      <UContainer class="flex-1 flex flex-col gap-4 sm:gap-6 h-full overflow-hidden">
         <UChatMessages
           should-auto-scroll
           :messages="chat.messages"
           :status="chat.status"
           :assistant="chat.status !== 'streaming' ? { actions: [{ label: 'Copy', icon: copied ? 'i-lucide-copy-check' : 'i-lucide-copy', onClick: copy }] } : { actions: [] }"
           :spacing-offset="160"
-          class="lg:pt-(--ui-header-height) pb-4 sm:pb-6"
+          class="lg:pt-(--ui-header-height) pb-4 sm:pb-6 flex-1 overflow-y-auto"
         >
           <template #content="{ message }">
             <template
