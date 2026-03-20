@@ -5,8 +5,21 @@ import { useUserSession } from '../composables/useUserSession'
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8049'
 const LOGIN_URL = 'https://liux.vip/micronaut'
 
-const { getToken } = useToken()
+const { getToken, headerName } = useToken()
 const { refreshSession } = useUserSession()
+
+function resolveApiUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path
+
+  const base = API_BASE_URL.replace(/\/+$/, '')
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return `${base}${normalizedPath}`
+}
+
+function buildAuthHeaders() {
+  const token = getToken()
+  return token ? { [headerName]: `Bearer ${token}` } : {}
+}
 
 // 刷新标志 & 等待队列
 let isRefreshing = false
@@ -41,8 +54,10 @@ async function handle401(originalResponse: any, originalRequest: any, originalOp
 
     if (!refreshed) {
       // 刷新失败 → 清 token & 重定向
-      if (window.location.pathname !== '/') {
-        window.location.href = '/'
+      const { useRouter } = await import('vue-router')
+      const router = useRouter()
+      if (router.currentRoute.value.path !== '/') {
+        router.push({ path: '/', replace: true })
       }
       // 清空队列并拒绝等待的请求
       processQueue(new Error('Token refresh failed'))
@@ -115,6 +130,8 @@ const apiFetch = $fetch.create({
 export const apiClient = {
   baseURL: API_BASE_URL,
   loginURL: LOGIN_URL,
+  resolveApiUrl,
+  buildAuthHeaders,
 
   async get<T = any>(path: string, options = {}): Promise<T> {
     return apiFetch<T>(path, { method: 'GET', ...options })

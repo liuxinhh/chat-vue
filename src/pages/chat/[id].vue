@@ -7,7 +7,7 @@ import { useClipboard } from '@vueuse/core'
 import { getTextFromMessage } from '@nuxt/ui/utils/ai'
 import { useModels } from '../../composables/useModels'
 import { useChats } from '../../composables/useChats'
-import { useToken } from '../../composables/useToken'
+import apiClient from '../../api/client'
 import { useRoute } from 'vue-router'
 import MarkdownRender from 'vue-renderer-markdown'
 import type { WeatherUIToolInvocation } from '../../utils/tools/weather'
@@ -21,7 +21,6 @@ const toast = useToast()
 const clipboard = useClipboard()
 const { model } = useModels()
 const { fetchChats, getChat } = useChats()
-const { getToken, headerName } = useToken()
 
 const chatData = await getChat(route.params.id)
 
@@ -35,8 +34,8 @@ const chat = new Chat({
   id: chatData.id,
   messages: chatData.messages,
   transport: new DefaultChatTransport({
-    api: `/api/chats/${chatData.id}`,
-    headers: { [headerName]: `Bearer ${getToken()}` },
+    api: apiClient.resolveApiUrl(`/api/chats/${chatData.id}`),
+    headers: () => apiClient.buildAuthHeaders(),
     body: {
       model: model.value
     }
@@ -99,14 +98,14 @@ onMounted(() => {
     </template>
 
     <template #body>
-      <UContainer class="flex-1 flex flex-col gap-4 sm:gap-6 h-full overflow-hidden">
+      <UContainer class="flex-1 flex flex-col gap-4 sm:gap-6 h-full overflow-hidden min-w-0">
         <UChatMessages
           should-auto-scroll
           :messages="chat.messages"
           :status="chat.status"
           :assistant="chat.status !== 'streaming' ? { actions: [{ label: 'Copy', icon: copied ? 'i-lucide-copy-check' : 'i-lucide-copy', onClick: copy }] } : { actions: [] }"
           :spacing-offset="160"
-          class="lg:pt-(--ui-header-height) pb-4 sm:pb-6 flex-1 overflow-y-auto"
+          class="lg:pt-(--ui-header-height) pb-4 sm:pb-6 flex-1 overflow-y-auto overflow-x-hidden min-w-0"
         >
           <template #content="{ message }">
             <template
@@ -121,12 +120,13 @@ onMounted(() => {
               <!-- Only render markdown for assistant messages to prevent XSS from user input -->
               <MarkdownRender
                 v-else-if="part.type === 'text' && message.role === 'assistant'"
+                class="chat-markdown"
                 :content="getTextFromMessage(message)"
               />
               <!-- User messages are rendered as plain text (safely escaped by Vue) -->
               <p
                 v-else-if="part.type === 'text' && message.role === 'user'"
-                class="whitespace-pre-wrap"
+                class="whitespace-pre-wrap break-words"
               >
                 {{ part.text }}
               </p>
@@ -181,3 +181,15 @@ onMounted(() => {
     </UError>
   </UContainer>
 </template>
+
+<style scoped>
+.chat-markdown {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.chat-markdown :deep(pre) {
+  max-width: 100%;
+  overflow-x: auto;
+}
+</style>
