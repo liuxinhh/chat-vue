@@ -63,6 +63,7 @@ export const useUserSession = createSharedComposable(() => {
         setRefreshToken(response.refresh_token)
       }
       
+      await fetchSession() // 获取会话信息，更新 session 状态
       return true
     } catch (error) {
       console.error('登录失败:', error)
@@ -109,15 +110,20 @@ export const useUserSession = createSharedComposable(() => {
       return false
     }
 
-    const newToken = await  apiClient.refreshToken(currentRefreshToken).catch(() => null)
-
-    if (newToken) {
-      setToken(newToken)
-      return true
+    const response = await  apiClient.refreshToken(currentRefreshToken).catch(() => null)
+    if (!response) {
+      clearAllTokens()
+      return false
     }
-
-    clearAllTokens()
-    return false
+    // 保存 accessToken
+    const token = response.access_token || response.token
+    setToken(token)
+    
+    // 保存 refreshToken
+    if (response.refresh_token) {
+      setRefreshToken(response.refresh_token)
+    }
+    return true
   }
   
   return {

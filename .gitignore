@@ -39,5 +39,3 @@ dist
 .nitro
 .cache
 .output
-.env
-.env.local

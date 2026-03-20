@@ -21,6 +21,10 @@ export const useChats = () => {
 
     try {
       const data = await apiClient.get<any[]>('/api/chats')
+      if (!Array.isArray(data)) {
+        chats.value = []
+        return
+      }
       chats.value = data.map((chat: any) => ({
         id: chat.id,
         label: chat.title || '未命名对话',
@@ -28,8 +32,7 @@ export const useChats = () => {
         icon: 'i-lucide-message-circle',
         createdAt: chat.createdAt || new Date().toISOString()
       }))
-    } catch (err) {
-      console.error('获取聊天列表失败:', err)
+    } catch {
       error.value = '获取聊天列表失败'
       chats.value = []
     } finally {

@@ -35,7 +35,6 @@ function openLoginModal() {
 }
 
 watch(loggedIn, async () => {
-  await fetchSession()
   await fetchChats()
 })
 
@@ -147,7 +146,7 @@ defineShortcuts({
 
       <template #footer="{ collapsed }">
         <UModal
-          :open="openModal"
+          v-model:open="openModal"
           size="md"
           title="登录"
         >
