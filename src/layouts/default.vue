@@ -11,14 +11,16 @@ const router = useRouter()
 const route = useRoute<'/chat/[id]' | '/'>()
 const toast = useToast()
 const overlay = useOverlay()
-const { loggedIn, fetchSession } = useUserSession()
+const { loggedIn, restoreSession } = useUserSession()
 const { chats, fetchChats, deleteChat } = useChats()
+const initialized = ref(false)
 
 const openModal = ref(false)
 
 onMounted(async () => {
-  await fetchSession()
+  await restoreSession()
   await fetchChats()
+  initialized.value = true // 标记初始化完成，避免 watch 在首屏重复请求
 })
 
 const open = ref(false)
@@ -35,6 +37,10 @@ function openLoginModal() {
 }
 
 watch(loggedIn, async () => {
+  // 仅在完成首屏初始化后，再根据登录状态变化刷新列表
+  if (!initialized.value) {
+    return
+  }
   await fetchChats()
 })
 

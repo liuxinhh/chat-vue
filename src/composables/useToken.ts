@@ -1,111 +1,65 @@
+import { AUTHORIZATION_HEADER } from '../api/authHelpers'
+
 const ACCESS_TOKEN_KEY = 'accessToken'
 const REFRESH_TOKEN_KEY = 'refreshToken'
-const AUTHORIZATION_HEADER = 'Authorization'
-
-// ============================================
-// Access Token 相关操作
-// ============================================
 
 /**
- * 从 localStorage 获取 accessToken
- * @returns {string} 返回存储的 token，不存在返回空字符串
+ * localStorage 的最薄封装。
+ * 这里不做任何业务判断，只把读写删除行为统一起来，避免散落在各处。
  */
-function getToken(): string {
-  return localStorage.getItem(ACCESS_TOKEN_KEY) ?? ''
-}
-
-/**
- * 保存 accessToken 到 localStorage
- * @param {string} token - 待保存的 token
- */
-function setToken(token: string): void {
-  if (token) {
-    localStorage.setItem(ACCESS_TOKEN_KEY, token)
+const storage = {
+  get(key: string) {
+    return localStorage.getItem(key) ?? ''
+  },
+  set(key: string, value: string) {
+    if (value) {
+      localStorage.setItem(key, value)
+    }
+  },
+  remove(key: string) {
+    localStorage.removeItem(key)
   }
 }
 
-/**
- * 删除 localStorage 中的 accessToken
- */
-function removeToken(): void {
-  localStorage.removeItem(ACCESS_TOKEN_KEY)
+const accessToken = {
+  get: () => storage.get(ACCESS_TOKEN_KEY),
+  set: (token: string) => storage.set(ACCESS_TOKEN_KEY, token),
+  remove: () => storage.remove(ACCESS_TOKEN_KEY)
 }
 
-// ============================================
-// Refresh Token 相关操作
-// ============================================
-
-/**
- * 从 localStorage 获取 refreshToken
- * @returns {string} 返回存储的 refresh token，不存在返回空字符串
- */
-function getRefreshToken(): string {
-  return localStorage.getItem(REFRESH_TOKEN_KEY) ?? ''
+const refreshToken = {
+  get: () => storage.get(REFRESH_TOKEN_KEY),
+  set: (token: string) => storage.set(REFRESH_TOKEN_KEY, token),
+  remove: () => storage.remove(REFRESH_TOKEN_KEY)
 }
 
-/**
- * 保存 refreshToken 到 localStorage
- * @param {string} token - 待保存的 refresh token
- */
-function setRefreshToken(token: string): void {
-  if (token) {
-    localStorage.setItem(REFRESH_TOKEN_KEY, token)
-  }
+const tokenUtils = {
+  clearAll: () => {
+    accessToken.remove()
+    refreshToken.remove()
+  },
+  hasAccess: () => !!accessToken.get()
 }
 
-/**
- * 删除 localStorage 中的 refreshToken
- */
-function removeRefreshToken(): void {
-  localStorage.removeItem(REFRESH_TOKEN_KEY)
-}
-
-// ============================================
-// 统一操作
-// ============================================
-
-/**
- * 清空所有 token（accessToken 和 refreshToken）
- * 用于登出操作
- */
-function clearAllTokens(): void {
-  removeToken()
-  removeRefreshToken()
-}
-
-/**
- * 检查 accessToken 是否存在
- * @returns {boolean} token 存在返回 true，否则返回 false
- */
-function hasToken(): boolean {
-  return !!getToken()
-}
-
-// ============================================
-// 导出 Composable
-// ============================================
-
-/**
- * Token 管理 Composable
- * @returns {Object} 返回所有 token 操作方法
- */
 export function useToken() {
   return {
-    // Access Token 操作
-    getToken,
-    setToken,
-    removeToken,
-    
-    // Refresh Token 操作
-    getRefreshToken,
-    setRefreshToken,
-    removeRefreshToken,
-    
-    // 统一操作
-    clearAllTokens,
-    hasToken,
-    
-    // 常量
-    headerName: AUTHORIZATION_HEADER
+    /** 更语义化的新接口：显式区分 access / refresh token。 */
+    access: accessToken,
+    refresh: refreshToken,
+    /** 清空全部 token，通常用于退出登录或刷新失败。 */
+    clear: tokenUtils.clearAll,
+    /** 当前是否存在 access token。 */
+    hasAccess: tokenUtils.hasAccess,
+    /** 统一的鉴权请求头名称，供 HTTP 层复用。 */
+    headerName: AUTHORIZATION_HEADER,
+    // Backward compatible aliases
+    getToken: accessToken.get,
+    setToken: accessToken.set,
+    removeToken: accessToken.remove,
+    getRefreshToken: refreshToken.get,
+    setRefreshToken: refreshToken.set,
+    removeRefreshToken: refreshToken.remove,
+    clearAllTokens: tokenUtils.clearAll,
+    hasToken: tokenUtils.hasAccess
   }
 }

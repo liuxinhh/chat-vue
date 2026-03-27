@@ -1,12 +1,27 @@
-import { $fetch } from 'ofetch'
+import { $fetch, FetchError, type FetchOptions } from 'ofetch'
 import { useToken } from '../composables/useToken'
-import { useUserSession } from '../composables/useUserSession'
+import { applyTokenPair, createBearerHeaders, type TokenPayload } from './authHelpers'
+import { authService } from './authService'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8049'
 const LOGIN_URL = 'https://liux.vip/micronaut'
 
-const { getToken, headerName } = useToken()
-const { refreshSession } = useUserSession()
+const tokens = useToken()
+const { getToken, headerName } = tokens
+
+type AuthFetchOptions = FetchOptions<'json'> & {
+  skipAuthRetry?: boolean
+}
+
+type QueueItem = {
+  proceed: () => void
+  reject: (error?: unknown) => void
+}
+
+const EXCLUDED_ENDPOINTS = ['/api/account/login', '/api/oauth/access_token']
+
+let isRefreshing = false
+let refreshQueue: QueueItem[] = []
 
 function resolveApiUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path
@@ -17,115 +32,151 @@ function resolveApiUrl(path: string): string {
 }
 
 function buildAuthHeaders() {
-  const token = getToken()
-  return token ? { [headerName]: `Bearer ${token}` } : {}
+  return createBearerHeaders(getToken(), headerName)
 }
 
-// 刷新标志 & 等待队列
-let isRefreshing = false
+const apiFetch = $fetch.create({
+  baseURL: API_BASE_URL,
+  /**
+   * 所有请求都在这里统一注入 access token。
+   * 这样页面和 composable 不需要关心请求头拼装细节。
+   */
+  onRequest({ options }) {
+    const accessToken = getToken()
+    if (!options.headers) return
 
-type FailedQueueItem = { resolve: (value?: unknown) => void; reject: (err?: any) => void }
-let failedQueue: FailedQueueItem[] = []
+    if (accessToken) {
+      options.headers.set(headerName, `Bearer ${accessToken}`)
+    } else {
+      options.headers.delete(headerName)
+    }
+  }
+})
 
-const excludeEndpoints = [
-  '/api/account/login',
-  '/api/oauth/access_token'
-]
-
-function processQueue(error: any = null) {
-  failedQueue.forEach(item => (error ? item.reject(error) : item.resolve()))
-  failedQueue = []
+function isAuthExcluded(path: string) {
+  return EXCLUDED_ENDPOINTS.some(endpoint => path.includes(endpoint))
 }
 
-async function handle401(originalResponse: any, originalRequest: any, originalOptions: any): Promise<any> {
-  if (isRefreshing) {
-    // 已经在刷新 → 加入等待队列 → 
-    return new Promise((resolve, reject) => {
-      failedQueue.push({ resolve, reject })
+function isCode401Payload(payload: unknown) {
+  if (!payload || typeof payload !== 'object') return false
+  const code = (payload as Record<string, any>).code
+  return Number(code) === 401
+}
+
+function shouldHandleUnauthorized(path: string, options: AuthFetchOptions) {
+  return !options.skipAuthRetry && !isAuthExcluded(path)
+}
+
+function isUnauthorizedError(error: unknown): error is FetchError {
+  return error instanceof FetchError && error.response?.status === 401
+}
+
+/**
+ * 将后端返回的 token 响应写入本地存储。
+ * 这一步是 refresh / login 共用的，所以单独抽出来。
+ */
+function applyToken(payload?: TokenPayload | null) {
+  applyTokenPair(tokens, payload)
+}
+
+/**
+ * 刷新 access token。
+ * 这里只负责 token 层面的状态恢复，不再处理路由跳转或 UI 提示。
+ */
+async function performTokenRefresh() {
+  const refreshToken = tokens.refresh.get()
+
+  if (!refreshToken) {
+    tokens.clear()
+    throw new Error('Refresh token not found')
+  }
+
+  try {
+    const response = await authService.refreshToken(refreshToken)
+    applyToken(response)
+  } catch (error) {
+    tokens.clear()
+    throw error
+  }
+}
+
+/**
+ * 当请求遇到 401 时进入刷新队列。
+ * 同一时间只允许一个刷新请求，其余请求等待刷新完成后重试。
+ */
+function enqueueRetry<T>(runner: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    refreshQueue.push({
+      proceed: () => {
+        runner().then(resolve).catch(reject)
+      },
+      reject
     })
-      .then(() => apiFetch(originalRequest, originalOptions))
-      .catch(() => originalResponse)
+  })
+}
+
+/**
+ * 刷新完成后统一唤醒等待队列，或者在失败时统一拒绝。
+ */
+function flushQueue(error?: unknown) {
+  const queue = [...refreshQueue]
+  refreshQueue = []
+
+  queue.forEach(item => {
+    if (error) {
+      item.reject(error)
+    } else {
+      item.proceed()
+    }
+  })
+}
+
+/**
+ * 执行带 token 刷新的请求。
+ * 第一次请求失败后会尝试刷新 token 并只重试一次。
+ */
+async function retryWithFreshToken<T>(runner: () => Promise<T>) {
+  if (isRefreshing) {
+    return enqueueRetry(runner)
   }
 
   isRefreshing = true
-
   try {
-    const refreshed = await refreshSession()
-
-    if (!refreshed) {
-      // 刷新失败 → 清 token & 重定向
-      const { useRouter } = await import('vue-router')
-      const router = useRouter()
-      if (router.currentRoute.value.path !== '/') {
-        router.push({ path: '/', replace: true })
-      }
-      // 清空队列并拒绝等待的请求
-      processQueue(new Error('Token refresh failed'))
-      // 返回原始的响应结果
-      return originalResponse
-    }
-
-    // 刷新成功 → 清空队列，所有等待的请求继续
-    processQueue()
-
-    // 用最新 token 重试原始请求
-    return apiFetch(originalRequest, originalOptions)
-  } catch (err) {
-    processQueue(err)
-    throw err
+    await performTokenRefresh()
+    flushQueue()
+    return runner()
+  } catch (error) {
+    flushQueue(error)
+    throw error
   } finally {
     isRefreshing = false
   }
 }
 
-const apiFetch = $fetch.create({
-  baseURL: API_BASE_URL,
+/**
+ * 统一的请求执行入口。
+ * 同时兼容 HTTP 401 和业务 code: 401 两种失效信号。
+ */
+async function execute<T = any>(path: string, options: AuthFetchOptions = {}): Promise<T> {
+  const requestOptions: AuthFetchOptions = { ...options }
 
-  onRequest({ options }) {
-    const accessToken = getToken()
-    if (accessToken) {
-      options.headers.delete('Authorization')
-      options.headers.append('Authorization', `Bearer ${accessToken}`)
+  try {
+    const data = await apiFetch<T>(path, requestOptions)
+    if (shouldHandleUnauthorized(path, requestOptions) && isCode401Payload(data)) {
+      return retryWithFreshToken(() =>
+        execute<T>(path, { ...requestOptions, skipAuthRetry: true })
+      )
     }
-  },
-
-  async onResponse({ response, request, options }) {
-    // 无论 HTTP 401 还是 200 + code:401，都视为需要刷新 token
-    const needRefresh =
-      response.status === 401 ||
-      (response.status === 200 &&
-        response._data &&
-        typeof response._data === 'object' &&
-        response._data?.code === 401)
-
-    if (!needRefresh) return
-
-    // 排除登录相关接口，避免刷新失败导致的循环重试
-    const url = String(request)
-    if (excludeEndpoints.some(e => url.includes(e))) {
-      return;
+    return data
+  } catch (error) {
+    if (shouldHandleUnauthorized(path, requestOptions) && isUnauthorizedError(error)) {
+      return retryWithFreshToken(() =>
+        execute<T>(path, { ...requestOptions, skipAuthRetry: true })
+      )
     }
-
-    // 防止无限重试(refresh 本身失败的情况)
-    if ((options as any)._isRetried) {
-      console.warn('Detected token refresh loop, aborting')
-      
-    }
-
-    // 标记已重试过一次
-    (options as any)._isRetried = true
-
-    response = await handle401(response, request, options)
-    // 执行刷新逻辑
-    // const refreshed = await handle401(response ,request, options)
-
-    // if (!refreshed) {
-    //   throw new Error('Token refresh failed')
-    // }
-
-    // response._data = await apiFetch(request, options)
+    throw error
   }
-})
+}
 
 export const apiClient = {
   baseURL: API_BASE_URL,
@@ -133,36 +184,28 @@ export const apiClient = {
   resolveApiUrl,
   buildAuthHeaders,
 
-  async get<T = any>(path: string, options = {}): Promise<T> {
-    return apiFetch<T>(path, { method: 'GET', ...options })
+  async get<T = any>(path: string, options: AuthFetchOptions = {}): Promise<T> {
+    return execute<T>(path, { method: 'GET', ...options })
   },
 
-  async post<T = any>(path: string, data?: any, options = {}): Promise<T> {
-    return apiFetch<T>(path, { method: 'POST', body: data, ...options })
+  async post<T = any>(path: string, data?: any, options: AuthFetchOptions = {}): Promise<T> {
+    return execute<T>(path, { method: 'POST', body: data, ...options })
   },
 
-  async put<T = any>(path: string, data?: any, options = {}): Promise<T> {
-    return apiFetch<T>(path, { method: 'PUT', body: data, ...options })
+  async put<T = any>(path: string, data?: any, options: AuthFetchOptions = {}): Promise<T> {
+    return execute<T>(path, { method: 'PUT', body: data, ...options })
   },
 
-  async delete<T = any>(path: string, options = {}): Promise<T> {
-    return apiFetch<T>(path, { method: 'DELETE', ...options })
+  async delete<T = any>(path: string, options: AuthFetchOptions = {}): Promise<T> {
+    return execute<T>(path, { method: 'DELETE', ...options })
   },
 
-  async login(username: string, password: string): Promise<any> {
-    return this.post(`${this.loginURL}/api/account/login`, { username, password })
+  async login(username: string, password: string) {
+    return authService.login(username, password)
   },
 
-  async refreshToken(refreshToken: string): Promise<any> {
-    const params = new URLSearchParams()
-    params.append('grant_type', 'refresh_token')
-    params.append('refresh_token', refreshToken)
-
-    return this.post(`${this.loginURL}/api/oauth/access_token`, params, {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      }
-    })
+  async refreshToken(refreshToken: string) {
+    return authService.refreshToken(refreshToken)
   }
 }
 

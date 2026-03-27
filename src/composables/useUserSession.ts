@@ -12,8 +12,9 @@
 
 import { createSharedComposable } from '@vueuse/core'
 import { ref, computed } from 'vue'
-import { apiClient } from '../api/client'
 import type { UserSession } from '../utils/session'
+import { applyTokenPair } from '../api/authHelpers'
+import { authService } from '../api/authService'
 import { useToken } from './useToken'
 
 /**
@@ -26,12 +27,11 @@ export interface UserInfo {
 }
 
 export const useUserSession = createSharedComposable(() => {
-  
   /** 用户会话数据 */
   const session = ref<UserSession | null>(null)
-  
-  // 获取 token 管理工具（在函数内部调用，确保响应式）
-  const { setToken, setRefreshToken, clearAllTokens, getRefreshToken } = useToken()
+
+  // 统一从 token composable 读取写入，避免在这里直接碰 localStorage 细节。
+  const tokens = useToken()
 
   /**
    * 检查用户是否已登录
@@ -40,90 +40,80 @@ export const useUserSession = createSharedComposable(() => {
   const loggedIn = computed(() => Boolean(session.value?.user))
 
   /**
-   * 登录
-   * 
-   * 1. 调用后端登录接口
-   * 2. 保存返回的 accessToken 和 refreshToken
-   * 3. 返回登录是否成功
-   * 
-   * @param {string} username - 用户名
-   * @param {string} password - 密码
-   * @returns {Promise<boolean>} 登录成功返回 true
+   * 从当前 access token 重新拉取会话信息。
+   * 这个方法既用于页面初始化，也用于登录后补全 user 数据。
+   */
+  const restoreSession = async () => {
+    const currentToken = tokens.access.get()
+
+    if (!currentToken) {
+      session.value = null
+      return null
+    }
+
+    try {
+      session.value = await authService.fetchSession(currentToken, tokens.headerName)
+    } catch {
+      session.value = null
+    }
+
+    return session.value
+  }
+
+  /**
+   * 登录成功后同时写入 token，并立刻刷新一次会话数据。
+   * 这里不关心 UI 反馈，只返回 success / fail。
    */
   const login = async (username: string, password: string) => {
     try {
-      const response = await apiClient.login(username, password)
-      
-      // 保存 accessToken
-      const token = response.access_token || response.token
-      setToken(token)
-      
-      // 保存 refreshToken
-      if (response.refresh_token) {
-        setRefreshToken(response.refresh_token)
-      }
-      
-      await fetchSession() // 获取会话信息，更新 session 状态
+      const response = await authService.login(username, password)
+      applyTokenPair(tokens, response)
+      await restoreSession()
       return true
     } catch (error) {
       console.error('登录失败:', error)
+      tokens.clear()
+      session.value = null
       return false
     }
   }
 
   /**
-   * 登出
-   * 
-   * 清空所有保存的 token，返回到未登录状态
-   * 
-   * 注：不负责路由跳转，由调用者控制页面导航
+   * 登出时只负责清理本地认证状态。
+   * 路由跳转、弹窗关闭等交给调用方处理。
    */
   const logout = async () => {
-    clearAllTokens()
+    tokens.clear()
+    session.value = null
   }
 
   /**
-   * 获取当前会话信息
-   * 
-   * 调用后端接口获取用户会话数据
-   * 失败时静默处理，返回 null
+   * 保持对外兼容的旧接口，内部直接复用 restoreSession。
    */
-  const fetchSession = async () => {
-    session.value = await apiClient.get('/api/auth/session').catch(() => null)
-  }
+  const fetchSession = restoreSession
 
   /**
-   * 刷新 accessToken 并更新存储
-   * 
-   * 流程：
-   * 1. 检查 refreshToken 是否存在
-   * 2. 调用 OAuth 端点获取新 token
-   * 3. 如果成功，保存新 token；如果失败，清除所有 token
-   * 
-   * @returns {Promise<boolean>} 刷新是否成功
+   * 刷新 access token。
+   * 如果 refresh token 不存在或刷新失败，则清空本地认证状态。
    */
   const refreshSession = async (): Promise<boolean> => {
-    const currentRefreshToken = getRefreshToken()
+    const currentRefreshToken = tokens.refresh.get()
 
     if (!currentRefreshToken) {
-      clearAllTokens()
+      tokens.clear()
+      session.value = null
       return false
     }
 
-    const response = await  apiClient.refreshToken(currentRefreshToken).catch(() => null)
-    if (!response) {
-      clearAllTokens()
+    try {
+      const response = await authService.refreshToken(currentRefreshToken)
+      applyTokenPair(tokens, response)
+      return true
+    } catch {
+      tokens.clear()
+      session.value = null
       return false
     }
-    // 保存 accessToken
-    const token = response.access_token || response.token
-    setToken(token)
-    
-    // 保存 refreshToken
-    if (response.refresh_token) {
-      setRefreshToken(response.refresh_token)
-    }
-    return true
   }
   
   return {
@@ -141,6 +131,9 @@ export const useUserSession = createSharedComposable(() => {
     
     /** 获取会话信息方法 */
     fetchSession,
+
+    /** 恢复当前会话 */
+    restoreSession,
 
     /** 刷新 token 方法 */
     refreshSession

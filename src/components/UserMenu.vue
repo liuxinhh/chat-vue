@@ -13,19 +13,20 @@ const router = useRouter()
 const colorMode = useColorMode()
 const appConfig = useAppConfig()
 const { user, logout } = useUserSession()
+const displayName = computed(() => user.value?.userName || user.value?.email || 'User')
 
 const colors = ['red', 'orange', 'amber', 'yellow', 'lime', 'green', 'emerald', 'teal', 'cyan', 'sky', 'blue', 'indigo', 'violet', 'purple', 'fuchsia', 'pink', 'rose']
 const neutrals = ['slate', 'gray', 'zinc', 'neutral', 'stone']
 
 const items = computed<DropdownMenuItem[][]>(() => ([
-[{
-  type: 'label',
-  label: user.value?.userName || user.value?.email || 'User',
-  avatar: {
-    src: undefined,
-    alt: user.value?.userName || 'User'
-  }
-}], [{
+  [{
+    type: 'label',
+    label: displayName.value,
+    avatar: {
+      src: undefined,
+      alt: displayName.value
+    }
+  }], [{
   label: 'Theme',
   icon: 'i-lucide-palette',
   children: [{
@@ -127,7 +128,7 @@ const items = computed<DropdownMenuItem[][]>(() => ([
   icon: 'i-lucide-log-out',
   async onSelect() {
     await logout()
-    router.push('/')
+    router.replace('/')
   }
 }]]))
 </script>
@@ -140,12 +141,12 @@ const items = computed<DropdownMenuItem[][]>(() => ([
   >
     <UButton
       v-bind="{
-        label: collapsed ? undefined : (user?.userName || user?.email),
+        label: collapsed ? undefined : displayName,
         trailingIcon: collapsed ? undefined : 'i-lucide-chevrons-up-down'
       }"
       :avatar="{
         src: undefined,
-        alt: user?.userName || 'User'
+        alt: displayName
       }"
       color="neutral"
       variant="ghost"
