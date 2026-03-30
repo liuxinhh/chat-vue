@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-该文件为 Claude Code（claude.ai/code）在此仓库中工作时提供指导。
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## 构建、代码检查与开发命令
 
@@ -20,8 +20,10 @@ pnpm run typecheck  # 运行 TypeScript 类型检查
 ### 技术栈
 - **Vue 3 + Vite** 单页应用，使用 `vue-router` 自动路由 + `vite-plugin-vue-layouts` 进行布局组合
 - **Nuxt UI** 仪表盘组件作为 UI 框架
+- **Tailwind CSS v4** 样式系统
 - **AI SDK v5**（`@ai-sdk/vue`）处理 AI 流式消息
 - **Vercel AI Gateway**（通过 `AI_GATEWAY_API_KEY`）统一访问各 AI 提供商
+- **ofetch** 作为 HTTP 客户端
 
 ### 入口文件
 `src/main.ts` 负责启动应用：创建路由（调用 `setupLayouts(routes)`）、注册 Nuxt UI 插件、处理路由热更新（HMR）。
@@ -38,18 +40,27 @@ pnpm run typecheck  # 运行 TypeScript 类型检查
 - `src/pages/index.vue` — 新建对话，包含提示词建议
 - `src/pages/chat/[id].vue` — 对话详情：加载消息、流式 AI 响应、处理复制/重试/停止，渲染工具调用结果
 
-### API 客户端（`src/api/client.ts`）
-基于 `ofetch` 封装的后端请求工具：
+### API 客户端（`src/api/`）
+
+**`client.ts`** — 基于 `ofetch` 封装的 HTTP 客户端：
 - URL 解析：优先使用 `VITE_API_URL`，未设置时默认为 `http://localhost:8049`
 - 开发服务器将 `/api` 代理到后端
 - 自动注入 `Authorization: Bearer <token>` 请求头
-- 处理 401 响应时使用刷新队列，防止并发刷新风暴
+- **Token 刷新队列**：当请求遇到 401 时，会将请求加入等待队列，只允许一个刷新请求进行，避免并发刷新风暴
+- 同时处理 HTTP 401 和业务 `code: 401` 两种失效信号
+
+**`authService.ts`** — 认证相关 API 调用（login、refreshToken、fetchSession）
+
+**`authHelpers.ts`** — 认证辅助函数：
+- `resolveTokenPair()` — 统一提取 access_token / token（兼容不同后端响应格式）
+- `applyTokenPair()` — 将 token 写入 storage
+- `createBearerHeaders()` — 构造 Bearer 请求头
 
 ### Composables
 - `useUserSession` — 登录/登出、会话状态、token 刷新（使用 `createSharedComposable` 实现全局单例）
 - `useChats` — 获取、创建、删除对话；按日期分组（今天、昨天、上周、上月、年月）
 - `useModels` — 选中的模型存储在 `localStorage` 的 `model` 键下，默认为 `openai/gpt-5-nano`
-- `useToken` — 直接读写 `localStorage` 中的 `accessToken` 和 `refreshToken`
+- `useToken` — 管理 localStorage 中的 accessToken 和 refreshToken，提供 `access`/`refresh` 两个子对象和向后的兼容别名
 
 ### AI 工具
 `src/utils/tools/` 中的自定义工具 + `src/components/tool/` 中对应的 UI 组件：
@@ -68,4 +79,8 @@ pnpm run typecheck  # 运行 TypeScript 类型检查
 
 ### 环境变量
 - `VITE_API_URL` — 后端 API 基础地址（可选，默认 `http://localhost:8049`）
-- `AI_GATEWAY_API_KEY` — Vercel AI Gateway API 密钥（在后端配置）
+- `VITE_BASE` — 部署基础路径（可选，默认 `/`）
+- `AI_GATEWAY_API_KEY` — Vercel AI Gateway API 密钥（在 Vercel AI Gateway 配置）
+
+### 与后端的关系
+这是一个纯前端项目，后端 API 运行在独立的服务上（默认 `http://localhost:8049`）。前端不管理数据库，通过 API 与后端通信。

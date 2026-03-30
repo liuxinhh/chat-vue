@@ -120,7 +120,8 @@ onMounted(() => {
               <!-- Only render markdown for assistant messages to prevent XSS from user input -->
               <MarkdownRender
                 v-else-if="part.type === 'text' && message.role === 'assistant'"
-                class="chat-markdown"
+                class="chat-markdown animate-in"
+                :class="{ 'streaming-content': part.state !== 'done' }"
                 :content="getTextFromMessage(message)"
               />
               <!-- User messages are rendered as plain text (safely escaped by Vue) -->
@@ -184,12 +185,15 @@ onMounted(() => {
 
 <style scoped>
 .chat-markdown {
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  animation: fadeIn 0.2s ease-out;
 }
 
-.chat-markdown :deep(pre) {
-  max-width: 100%;
-  overflow-x: auto;
+.streaming-content {
+  animation: typeIn 0.1s ease-out;
+}
+
+@keyframes typeIn {
+  from { opacity: 0.7; }
+  to { opacity: 1; }
 }
 </style>
